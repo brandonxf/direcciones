@@ -1,0 +1,6 @@
+orden,identificador,nombre,direccion_original,direccion_normalizada,latitud,longitud,distancia_desde_anterior_m,duracion_desde_anterior_s
+1,1003,Marta Gómez,"Cll 30 #22-18, Soledad, Atlantico","Calle 30 #22-18, Soledad, Atlantico",10.9370509,-74.7752338,7156.5,537.1
+2,1005,Luis Pérez,"Cra 21 # 15-40, Malambo","Carrera 21 #15-40, Malambo",10.866502,-74.7737643,8824.2,982.3
+3,1006,Sara Julio,"Calle 3 # 5-20, Puerto Colombia","Calle 3 #5-20, Puerto Colombia",11.0151037,-74.9423092,36368.9,2079.2
+4,1001,Ana Torres,"cll 84 # 46 - 30, barranquilla","Calle 84 #46-30, Barranquilla",11.0011595,-74.8191746,15146.8,981.2
+5,1002,Carlos Ruiz,"Cra 46 No 82-25, Barranquilla","Carrera 46 #82-25, Barranquilla",10.9851811,-74.7765622,5109.8,404.1

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Geocodificar pasajeros — Atlántico{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0;">Geocodificar direcciones de pasajeros</h2>
+    <p class="muted">
+      Sube un Excel con columnas <code>identificador</code>, <code>nombre</code>,
+      <code>direccion</code> (y opcionalmente <code>turno</code>, <code>barrio</code>). El
+      sistema corrige el formato de cada dirección y consulta su latitud/longitud reales contra
+      el servicio de geocodificación — nunca se inventan coordenadas: lo que no se puede ubicar
+      queda marcado como excepción para revisión manual.
+    </p>
+    <p class="muted">
+      <strong>Recomendado:</strong> incluye la columna <code>barrio</code> cuando la conozcas.
+      En el Atlántico es común que el mismo nombre de calle (ej. "Calle 26") se repita en varios
+      barrios de un mismo municipio — sin el barrio, el sistema puede confundir la calle
+      correcta y dar una coordenada de un sector distinto.
+    </p>
+    <form action="{{ url_for('geocodificar') }}" method="post" enctype="multipart/form-data">
+      <div class="field">
+        <label for="excel">Archivo Excel/CSV de pasajeros</label>
+        <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+      </div>
+      <button type="submit">Geocodificar</button>
+    </form>
+  </div>
+
+  {% if resultado %}
+    <div class="card">
+      <h2 style="margin-top:0;">Resultado</h2>
+      <div class="summary">
+        <div>
+          <div class="value">{{ resultado.resumen.total }}</div>
+          <div class="label">Pasajeros procesados</div>
+        </div>
+        <div>
+          <div class="value" style="color:#027a48;">{{ resultado.resumen.exitosos }}</div>
+          <div class="label">Geocodificados ({{ '%.0f'|format(resultado.resumen.tasa_exito) }}%)</div>
+        </div>
+        {% if resultado.resumen.fallidos %}
+        <div>
+          <div class="value" style="color:#b42318;">{{ resultado.resumen.fallidos }}</div>
+          <div class="label">Sin geolocalizar</div>
+        </div>
+        {% endif %}
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Identificador</th><th>Nombre</th><th>Dirección normalizada</th>
+            <th>Latitud</th><th>Longitud</th><th>Estado</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in resultado.passengers %}
+            <tr>
+              <td>{{ p.identificador }}</td>
+              <td>{{ p.nombre }}</td>
+              <td>{{ p.direccion_normalizada or p.direccion_original }}</td>
+              <td>{{ p.latitud if p.latitud is not none else '—' }}</td>
+              <td>{{ p.longitud if p.longitud is not none else '—' }}</td>
+              <td>
+                {% if p.estado.value == 'geocodificada' %}
+                  {% if p.nota_precision %}
+                    <span class="badge" style="background:#fffaeb; color:#b54708;" title="{{ p.nota_precision }}">aproximado</span>
+                  {% else %}
+                    <span class="badge">geocodificada</span>
+                  {% endif %}
+                {% else %}
+                  <span class="badge" style="background:#fef3f2; color:#b42318;">{{ p.estado.value }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if p.latitud is not none and p.longitud is not none %}
+                  <a href="https://www.google.com/maps/search/?api=1&query={{ p.latitud }},{{ p.longitud }}"
+                     target="_blank" rel="noopener">Ver en Google Maps</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <p style="margin-top:1.5rem;">
+        <a class="button-link" href="{{ url_for('descargar_excel', filename=resultado.archivo) }}">Descargar Excel (.xlsx)</a>
+      </p>
+    </div>
+  {% endif %}
+
+  <p class="muted">¿Necesitas además calcular la ruta óptima de recogida/entrega?
+    <a href="{{ url_for('ruta_form') }}">Ir al cálculo de rutas &rarr;</a>
+  </p>
+{% endblock %}

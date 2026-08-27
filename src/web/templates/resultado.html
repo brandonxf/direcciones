@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Ruta calculada — Optimización de Rutas{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2 style="margin-top:0;">Ruta calculada <span class="badge">{{ ruta.sentido.value }}</span></h2>
+    <p class="muted">Origen: {{ ruta.origen }}</p>
+
+    <div class="summary">
+      <div>
+        <div class="value">{{ ruta.paradas|length }}</div>
+        <div class="label">Paradas</div>
+      </div>
+      <div>
+        <div class="value">{{ '%.2f'|format(ruta.distancia_total_m / 1000) }} km</div>
+        <div class="label">Distancia total</div>
+      </div>
+      <div>
+        <div class="value">{{ '%.1f'|format(ruta.duracion_total_s / 60) }} min</div>
+        <div class="label">Duración total</div>
+      </div>
+      {% if ruta.excepciones %}
+      <div>
+        <div class="value" style="color:#b42318;">{{ ruta.excepciones|length }}</div>
+        <div class="label">Excepciones</div>
+      </div>
+      {% endif %}
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>#</th><th>Pasajero</th><th>Dirección normalizada</th><th>Tramo</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for parada in ruta.paradas %}
+          <tr>
+            <td>{{ parada.orden }}</td>
+            <td>{{ parada.pasajero.nombre }}</td>
+            <td>{{ parada.pasajero.direccion_normalizada }}</td>
+            <td>
+              {{ '%.1f'|format(parada.distancia_desde_anterior_m / 1000) }} km
+              / {{ '%.0f'|format(parada.duracion_desde_anterior_s / 60) }} min
+            </td>
+            <td>
+              <a href="https://www.google.com/maps/search/?api=1&query={{ parada.pasajero.latitud }},{{ parada.pasajero.longitud }}"
+                 target="_blank" rel="noopener">Ver en Google Maps</a>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <p style="margin-top:1.5rem;">
+      {% if ruta.id %}
+        <a class="button-link" href="{{ url_for('ruta_descargar', ruta_id=ruta.id) }}">Descargar CSV</a>
+      {% endif %}
+      <a class="button-link" style="background:#6b7785; margin-left:0.5rem;" href="{{ url_for('ruta_form') }}">Volver</a>
+    </p>
+  </div>
+
+  {% if ruta.excepciones %}
+  <div class="card">
+    <h2 style="margin-top:0; color:#b42318;">Excepciones — requieren revisión manual</h2>
+    <table>
+      <thead>
+        <tr><th>Identificador</th><th>Nombre</th><th>Dirección original</th><th>Detalle</th></tr>
+      </thead>
+      <tbody>
+        {% for p in ruta.excepciones %}
+          <tr>
+            <td>{{ p.identificador }}</td>
+            <td>{{ p.nombre }}</td>
+            <td>{{ p.direccion_original }}</td>
+            <td>{{ p.error_detalle }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Cargar pasajeros — Optimización de Rutas{% endblock %}
+{% block content %}
+  <p class="muted"><a href="{{ url_for('index') }}">&larr; Volver a geocodificación</a></p>
+  <div class="card">
+    <h2 style="margin-top:0;">Cargar archivo de pasajeros</h2>
+    <form action="{{ url_for('ruta_procesar') }}" method="post" enctype="multipart/form-data">
+      <div class="field">
+        <label for="excel">Archivo Excel/CSV (columnas: identificador, nombre, direccion, turno)</label>
+        <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label for="origen">Dirección de origen (garaje / punto de partida)</label>
+          <input type="text" id="origen" name="origen" placeholder="Terminal de Transporte, Barranquilla, Atlántico" required>
+        </div>
+        <div class="field">
+          <label for="destino">Dirección de destino (opcional, por defecto = origen)</label>
+          <input type="text" id="destino" name="destino" placeholder="Igual al origen si se deja vacío">
+        </div>
+        <div class="field">
+          <label for="sentido">Sentido de la ruta</label>
+          <select id="sentido" name="sentido">
+            <option value="entrada">Entrada (recogida)</option>
+            <option value="salida">Salida (distribución)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="turno">Turno (opcional)</label>
+          <input type="text" id="turno" name="turno" placeholder="mañana, tarde...">
+        </div>
+      </div>
+      <button type="submit">Calcular ruta óptima</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Historial de rutas</h2>
+    {% if historial %}
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th><th>Sentido</th><th>Origen</th><th>Turno</th><th>Fecha</th><th>Distancia</th><th>Duración</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in historial %}
+            <tr>
+              <td>{{ r.id }}</td>
+              <td>{{ r.sentido }}</td>
+              <td>{{ r.origen }}</td>
+              <td>{{ r.turno or '-' }}</td>
+              <td>{{ r.fecha_generacion }}</td>
+              <td>{{ '%.1f'|format(r.distancia_total_m / 1000) }} km</td>
+              <td>{{ '%.0f'|format(r.duracion_total_s / 60) }} min</td>
+              <td><a href="{{ url_for('ruta_descargar', ruta_id=r.id) }}">CSV</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted">Todavía no se ha generado ninguna ruta.</p>
+    {% endif %}
+  </div>
+{% endblock %}

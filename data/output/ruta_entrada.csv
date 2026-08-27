@@ -1,0 +1,4 @@
+orden,identificador,nombre,direccion_original,direccion_normalizada,latitud,longitud,distancia_desde_anterior_m,duracion_desde_anterior_s
+1,1001,Ana Torres,"cll 45 # 12 - 30, bogota","Calle 45 #12-30, Bogotá",4.655334,-74.1009285,3219.1,243.9
+2,1005,Luis Pérez,Calle 100 # 15-20,Calle 100 #15-20,4.6704686,-74.0207395,14838.8,1477.1
+3,1003,Marta Gómez,"Kra 7 #123-45, Bogotá D.C.","Carrera 7 #123-45, Bogotá D.C.",4.4917878,-74.1160595,32932.5,2974.7
