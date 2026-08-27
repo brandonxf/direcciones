@@ -27,11 +27,35 @@
 
   <div id="progreso-panel" style="display:none;" class="card">
     <h2 style="margin-top:0;">Procesando direcciones</h2>
-    <div class="progress-track">
-      <div id="progress-bar" class="progress-fill" style="width:0%;"></div>
+
+    <div class="fase-block" id="fase-limpieza">
+      <div class="fase-head">
+        <span class="fase-title" id="fase-limpieza-titulo">1. Limpieza de datos (normalización IA)</span>
+        <span class="fase-estado" id="fase-limpieza-estado">en espera</span>
+      </div>
+      <div class="progress-track">
+        <div id="progress-bar-limpieza" class="progress-fill" style="width:0%;"></div>
+      </div>
+      <p id="progress-text-limpieza" class="muted">0 / 0</p>
     </div>
-    <p id="progress-text" class="muted">0 / 0</p>
+
+    <div class="fase-block" id="fase-geo">
+      <div class="fase-head">
+        <span class="fase-title" id="fase-geo-titulo">2. Geocodificación (obtención de coordenadas)</span>
+        <span class="fase-estado" id="fase-geo-estado">en espera</span>
+      </div>
+      <div class="progress-track">
+        <div id="progress-bar" class="progress-fill" style="width:0%;"></div>
+      </div>
+      <p id="progress-text" class="muted">0 / 0</p>
+    </div>
+
     <div id="lista-progreso" style="margin-top:1rem;"></div>
+
+    <details id="logs-detalle" style="margin-top:1.2rem;">
+      <summary class="muted" style="cursor:pointer;">Ver registro de ejecución (logs de consola)</summary>
+      <div id="logs-contenedor" class="logs-box"></div>
+    </details>
   </div>
 
   <div id="resultado-panel" style="display:none;" class="card">
@@ -62,10 +86,18 @@
       var form = document.getElementById('geocodificar-form');
       var btn = document.getElementById('btn-submit');
       var panel = document.getElementById('progreso-panel');
+
+      var barraLimpieza = document.getElementById('progress-bar-limpieza');
+      var textoLimpieza = document.getElementById('progress-text-limpieza');
+      var estadoLimpieza = document.getElementById('fase-limpieza-estado');
+
       var barra = document.getElementById('progress-bar');
       var texto = document.getElementById('progress-text');
+      var estadoGeo = document.getElementById('fase-geo-estado');
+
       var lista = document.getElementById('lista-progreso');
       var resPanel = document.getElementById('resultado-panel');
+      var logsCont = document.getElementById('logs-contenedor');
       var focoRow = null;
 
       form.addEventListener('submit', function (e) {
@@ -77,9 +109,19 @@
         btn.textContent = 'Procesando…';
         panel.style.display = 'block';
         resPanel.style.display = 'none';
+
+        barraLimpieza.style.width = '0%';
+        textoLimpieza.textContent = '0 / 0';
+        estadoLimpieza.textContent = 'en espera';
+        estadoLimpieza.className = 'fase-estado';
+
         barra.style.width = '0%';
         texto.textContent = '0 / 0';
+        estadoGeo.textContent = 'en espera';
+        estadoGeo.className = 'fase-estado';
+
         lista.innerHTML = '';
+        logsCont.innerHTML = '';
         focoRow = null;
 
         var fd = new FormData();
@@ -92,7 +134,7 @@
           })
           .then(function () { })
           .catch(function (err) {
-            appendRow({ estado: 'error', nombre: 'Error', direccion: err.message });
+            appendRow({ estado: 'error', nombre: 'Error', direccion: err.message, latitud: null, longitud: null });
             barra.style.width = '100%';
             texto.textContent = 'Error';
           })
@@ -123,13 +165,46 @@
         var dataLine = lineas.filter(function (l) { return l.startsWith('data: '); });
         if (!dataLine.length) return;
         var objeto = JSON.parse(dataLine[0].slice(6));
-        if (objeto.tipo === 'progreso') {
+        if (objeto.tipo === 'fase') {
+          cambiarFase(objeto.titulo);
+        } else if (objeto.tipo === 'progreso_limpieza') {
+          actualizarLimpieza(objeto);
+        } else if (objeto.tipo === 'progreso') {
           actualizarProgreso(objeto);
+        } else if (objeto.tipo === 'log') {
+          agregarLog(objeto.mensaje, 'ok');
         } else if (objeto.tipo === 'fin') {
           mostrarResultado(objeto);
         } else if (objeto.tipo === 'error') {
-          appendRow({ estado: 'error', nombre: 'Error', direccion: objeto.mensaje });
+          agregarLog(objeto.mensaje, 'err');
+          appendRow({ estado: 'error', nombre: 'Error', direccion: objeto.mensaje, latitud: null, longitud: null });
         }
+      }
+
+      function cambiarFase(titulo) {
+        var t = (titulo || '').toLowerCase();
+        if (t.indexOf('fase 2') !== -1 || t.indexOf('limpieza') !== -1) {
+          estadoLimpieza.textContent = 'en curso';
+          estadoLimpieza.className = 'fase-estado activa';
+        } else if (t.indexOf('fase 3') !== -1 || t.indexOf('geocodificaci') !== -1) {
+          estadoLimpieza.textContent = 'completada';
+          estadoLimpieza.className = 'fase-estado hecha';
+          barraLimpieza.style.width = '100%';
+          textoLimpieza.textContent = 'Completado';
+          estadoGeo.textContent = 'en curso';
+          estadoGeo.className = 'fase-estado activa';
+        }
+        agregarLog(titulo, 'fase');
+      }
+
+      function actualizarLimpieza(d) {
+        if (d.total > 0) {
+          var pct = Math.round((d.indice / d.total) * 100);
+          barraLimpieza.style.width = pct + '%';
+          textoLimpieza.textContent = d.indice + ' / ' + d.total;
+        }
+        appendRowLimpieza(d);
+        if (focoRow) focoRow.scrollIntoView({ block: 'nearest' });
       }
 
       function actualizarProgreso(d) {
@@ -140,6 +215,49 @@
         }
         appendRow(d);
         if (focoRow) focoRow.scrollIntoView({ block: 'nearest' });
+      }
+
+      function appendRowLimpieza(d) {
+        var fila = document.createElement('div');
+        fila.className = 'prog-row';
+        fila.style.background = '#eef4ff';
+
+        var idx = document.createElement('span');
+        idx.className = 'prog-index';
+        idx.textContent = d.indice || '';
+
+        var nombre = document.createElement('span');
+        nombre.className = 'prog-nombre';
+        nombre.textContent = d.nombre || '';
+        nombre.title = d.nombre || '';
+
+        var dir = document.createElement('span');
+        dir.className = 'prog-dir';
+        dir.textContent = d.direccion || '';
+
+        var coords = document.createElement('span');
+        coords.className = 'prog-coords';
+        coords.textContent = 'limpiada';
+
+        var btn = document.createElement('span');
+        btn.className = 'prog-btn';
+
+        fila.appendChild(idx);
+        fila.appendChild(nombre);
+        fila.appendChild(dir);
+        fila.appendChild(coords);
+        fila.appendChild(btn);
+
+        lista.appendChild(fila);
+        focoRow = fila;
+      }
+
+      function agregarLog(mensaje, clase) {
+        var linea = document.createElement('span');
+        linea.className = 'log-line ' + (clase || '');
+        linea.textContent = mensaje;
+        logsCont.appendChild(linea);
+        logsCont.scrollTop = logsCont.scrollHeight;
       }
 
       function appendRow(d) {
@@ -155,9 +273,15 @@
         nombre.textContent = d.nombre || d.identificador || '';
         nombre.title = d.nombre || d.identificador || '';
 
+        var dir = document.createElement('span');
+        dir.className = 'prog-dir';
+        dir.textContent = d.direccion || '';
+        dir.title = d.direccion || '';
+
         var coords = document.createElement('span');
         coords.className = 'prog-coords';
-        if (d.latitud !== null && d.latitud !== undefined && d.longitud !== null && d.longitud !== undefined) {
+        var tieneCoords = d.latitud !== null && d.latitud !== undefined && d.longitud !== null && d.longitud !== undefined;
+        if (tieneCoords) {
           coords.textContent = d.latitud.toFixed(6) + ', ' + d.longitud.toFixed(6);
           fila.style.background = 'var(--success-bg)';
         } else {
@@ -165,18 +289,39 @@
           fila.style.background = 'var(--danger-bg)';
         }
 
-        var estado = document.createElement('span');
-        var nota = d.nota_precision ? ' (' + d.nota_precision + ')' : '';
+        var btn = document.createElement('span');
+        btn.className = 'prog-btn';
+        if (tieneCoords) {
+          var enlace = document.createElement('a');
+          enlace.href = 'https://www.google.com/maps/search/?api=1&query=' + d.latitud + ',' + d.longitud;
+          enlace.target = '_blank';
+          enlace.rel = 'noopener';
+          enlace.textContent = 'Ver en Google Maps';
+          btn.appendChild(enlace);
+        } else {
+          var sinMapa = document.createElement('span');
+          sinMapa.className = 'sin-mapa';
+          sinMapa.textContent = 'Sin ubicación';
+          btn.appendChild(sinMapa);
+        }
+
         fila.appendChild(idx);
         fila.appendChild(nombre);
+        fila.appendChild(dir);
         fila.appendChild(coords);
-        fila.appendChild(estado);
+        fila.appendChild(btn);
 
         lista.appendChild(fila);
         focoRow = fila;
       }
 
       function mostrarResultado(d) {
+        estadoLimpieza.textContent = 'completada';
+        estadoLimpieza.className = 'fase-estado hecha';
+        barraLimpieza.style.width = '100%';
+        estadoGeo.textContent = 'completada';
+        estadoGeo.className = 'fase-estado hecha';
+
         resPanel.style.display = 'block';
         var r = d.resumen;
         document.getElementById('res-total').textContent = r.total;

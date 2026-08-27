@@ -130,9 +130,50 @@
     }
     .prog-row:last-child { border-bottom: none; }
     .prog-index { color: var(--muted); font-weight: 600; min-width: 2.2rem; }
-    .prog-nombre { font-weight: 600; flex: 0 0 11rem; min-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .prog-coords { flex: 1; color: var(--muted); font-family: monospace; font-size: 0.8rem; }
-    .prog-dir { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prog-nombre { font-weight: 600; flex: 0 0 9rem; min-width: 7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prog-dir { flex: 1; min-width: 10rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prog-coords { flex: 0 0 auto; width: 14rem; text-align: right; color: var(--muted); font-family: monospace; font-size: 0.8rem; }
+    .prog-btn { flex: 0 0 auto; }
+    .prog-btn a {
+      display: inline-block;
+      text-decoration: none;
+      background: var(--primary);
+      color: #fff;
+      padding: 0.3rem 0.7rem;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    .prog-btn a:hover { background: var(--primary-hover); }
+    .prog-btn .sin-mapa { color: var(--danger); font-size: 0.8rem; }
+    .fase-block { margin-bottom: 1.2rem; }
+    .fase-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.4rem;
+    }
+    .fase-title { font-weight: 600; font-size: 0.9rem; }
+    .fase-estado { font-size: 0.75rem; color: var(--muted); }
+    .fase-estado.activa { color: var(--primary); font-weight: 600; }
+    .fase-estado.hecha { color: var(--success-text); font-weight: 600; }
+    .logs-box {
+      background: #0d1117;
+      color: #c9d1d9;
+      font-family: Consolas, Menlo, monospace;
+      font-size: 0.78rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      max-height: 260px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin-top: 0.5rem;
+    }
+    .log-line { display: block; line-height: 1.5; }
+    .log-line.fase { color: #79c0ff; font-weight: 600; }
+    .log-line.ok { color: #3fb950; }
+    .log-line.err { color: #f85149; }
   </style>
 </head>
 <body>

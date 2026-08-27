@@ -101,7 +101,7 @@ def geocodificar_progreso():
         cola.put(("fin", None))
 
     def _emit():
-        def _progreso(i: int, total: int, pasajero):
+        def _geo_progreso(i: int, total: int, pasajero):
             _en_cola({
                 "tipo": "progreso",
                 "indice": i,
@@ -115,12 +115,42 @@ def geocodificar_progreso():
                 "nota_precision": pasajero.nota_precision,
             })
 
+        def _log_linea(mensaje: str):
+            # Emite eventos de fase / limpieza / log a partir de las líneas del pipeline.
+            if mensaje.startswith("=== Fase"):
+                _en_cola({"tipo": "fase", "titulo": mensaje.strip("= ").strip()})
+                return
+            if mensaje.startswith("Limpieza"):
+                # "Limpieza i/total: nombre (direccion)"
+                cabecera, resto = mensaje.split(": ", 1)
+                i_total = cabecera.split()[1]
+                indice, total = i_total.split("/")
+                nombre = resto.split(" (", 1)[0]
+                if " (" in resto:
+                    direccion = resto.split(" (", 1)[1].rstrip(")")
+                else:
+                    direccion = ""
+                _en_cola({
+                    "tipo": "progreso_limpieza",
+                    "indice": int(indice),
+                    "total": int(total),
+                    "nombre": nombre,
+                    "direccion": direccion,
+                })
+                return
+            # Cualquier otra línea de log que deba mostrarse
+            _en_cola({"tipo": "log", "mensaje": mensaje})
+
         # Se dispara el procesamiento en un hilo de fondo; el generador principal
         # entrega los eventos de la cola mientras llegan.
         import threading
         def _trabajo():
             try:
-                passengers = run_geocoding_pipeline(str(upload_path), progress_callback=_progreso)
+                passengers = run_geocoding_pipeline(
+                    str(upload_path),
+                    progress_callback=_geo_progreso,
+                    log_callback=_log_linea,
+                )
             except Exception as exc:
                 logger.exception("Error procesando el archivo: %s", exc)
                 _en_cola({"tipo": "error", "mensaje": str(exc)})

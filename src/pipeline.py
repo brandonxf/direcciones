@@ -7,9 +7,10 @@ Los proveedores de geocodificación y ruteo son intercambiables vía configuraci
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from src.ai_normalization.client import NvidiaAddressNormalizer
-from src.ai_normalization.normalizer import normalize_addresses
+from src.ai_normalization.normalizer import NormalizationCallback, normalize_addresses
 from src.config import settings
 from src.exceptions.exception_manager import list_exceptions
 from src.geocoding.base import GeocodingProvider
@@ -22,10 +23,13 @@ from src.persistence.repository import save_route
 
 logger = logging.getLogger(__name__)
 
+LogCallback = Callable[[str], None]
+
 
 def run_geocoding_pipeline(
     excel_path: str,
     progress_callback: ProgressCallback | None = None,
+    log_callback: LogCallback | None = None,
 ) -> list[Pasajero]:
     """Fase 1 -> Fase 2 -> Fase 3, sin ruteo: ingesta, normalización IA y geocodificación real.
 
@@ -33,21 +37,48 @@ def run_geocoding_pipeline(
     o None si no pudo geolocalizarse — nunca un valor inventado.
 
     `progress_callback` se reenvía a la geocodificación para reportar progreso en tiempo real.
+    `log_callback` recibe mensajes de estado de cada fase (ingesta, limpieza, geocodificación)
+    para mostrarlos en la interfaz web.
     """
-    logger.info("=== Fase 1: Ingesta === (%s)", excel_path)
+    def _log(msg: str) -> None:
+        logger.info(msg)
+        if log_callback:
+            log_callback(msg)
+
+    _log("=== Fase 1: Ingesta ===")
     passengers = load_passengers(excel_path)
+    _log(f"Se cargaron {len(passengers)} pasajeros válidos desde el archivo.")
 
-    logger.info("=== Fase 2: Saneamiento y Normalización (IA) ===")
+    _log("=== Fase 2: Saneamiento y Normalización (IA) ===")
     ai_client = NvidiaAddressNormalizer()
-    passengers = normalize_addresses(passengers, ai_client)
 
-    logger.info("=== Fase 3: Validación y Geocodificación (%s) ===", settings.geocoding_provider)
+    def _norm_progreso(i: int, total: int, pasajero: Pasajero) -> None:
+        if log_callback:
+            log_callback(f"Limpieza {i}/{total}: {pasajero.nombre} ({pasajero.direccion_normalizada or pasajero.direccion_original})")
+
+    passengers = normalize_addresses(passengers, ai_client, _norm_progreso)
+    _log("Normalización completada.")
+
+    _log(f"=== Fase 3: Validación y Geocodificación ({settings.geocoding_provider}) ===")
     geo_provider = _build_geocoding_provider()
-    passengers = geocode_passengers(passengers, geo_provider, progress_callback)
+
+    def _geo_progreso(i: int, total: int, pasajero: Pasajero) -> None:
+        if pasajero.latitud is not None and pasajero.longitud is not None:
+            estado_msg = f"{pasajero.latitud}, {pasajero.longitud}"
+        else:
+            estado_msg = "NO ENCONTRADA"
+        if log_callback:
+            log_callback(f"Geocodificación {i}/{total}: {pasajero.nombre} -> {estado_msg}")
+        if progress_callback:
+            progress_callback(i, total, pasajero)
+
+    passengers = geocode_passengers(passengers, geo_provider, _geo_progreso)
 
     resumen = list_exceptions(passengers)
     if resumen:
         logger.warning("%d dirección(es) no se pudieron geolocalizar.", len(resumen))
+        if log_callback:
+            log_callback(f"{len(resumen)} dirección(es) no se pudieron geolocalizar.")
 
     return passengers
 

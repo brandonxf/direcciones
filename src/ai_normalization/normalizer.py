@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from src.ai_normalization.client import AddressNormalizerClient
 from src.models.schemas import EstadoGeocodificacion, Pasajero
 
 logger = logging.getLogger(__name__)
+
+NormalizationCallback = Callable[[int, int, Pasajero], None]
 
 # Los 23 municipios del departamento del Atlántico. Se usa para garantizar de forma
 # determinística que toda dirección final incluya un municipio — la IA no siempre agrega el
@@ -34,13 +37,21 @@ def _asegurar_municipio(direccion: str) -> str:
     return f"{direccion}, {DEFAULT_MUNICIPIO}"
 
 
-def normalize_addresses(passengers: list[Pasajero], client: AddressNormalizerClient) -> list[Pasajero]:
+def normalize_addresses(
+    passengers: list[Pasajero],
+    client: AddressNormalizerClient,
+    progress_callback: NormalizationCallback | None = None,
+) -> list[Pasajero]:
     """Envía cada dirección al módulo de IA y conserva original + normalizada (RF-06).
 
     RNF-13 (tolerancia a fallos): si el servicio de IA falla para un registro puntual,
     se conserva la dirección original y se continúa con el resto del lote sin perder datos.
+
+    Si se pasa `progress_callback`, se invoca con (indice_actual, total, pasajero) tras
+    normalizar cada dirección.
     """
-    for pasajero in passengers:
+    total = len(passengers)
+    for i, pasajero in enumerate(passengers, start=1):
         # Si el Excel trae un barrio/sector aparte, se anexa al texto de entrada: ayuda a
         # distinguir calles con el mismo nombre en distintos sectores (ver client.py, regla 6).
         texto_entrada = pasajero.direccion_original
@@ -59,6 +70,9 @@ def normalize_addresses(passengers: list[Pasajero], client: AddressNormalizerCli
                 exc,
             )
             pasajero.direccion_normalizada = _asegurar_municipio(texto_entrada)
+
+        if progress_callback:
+            progress_callback(i, total, pasajero)
 
     logger.info("Normalización completada para %d pasajeros.", len(passengers))
     return passengers
