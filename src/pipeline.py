@@ -84,19 +84,59 @@ def run_geocoding_pipeline(
 
 
 def _build_geocoding_provider() -> GeocodingProvider:
-    if settings.geocoding_provider == "google":
-        from src.geocoding.google_maps_client import GeocodingClient
+    """Construye el proveedor de geocodificación con conmutación automática (failover).
 
-        return GeocodingClient()
+    El proveedor configurado en GEOCODING_PROVIDER es el primario; los demás disponibles
+    (Nominatim, LocationIQ, Google) actúan como respaldo automático si el primario falla por
+    límite de tasa (429) o error de servicio, sin intervención manual.
+    """
+    from src.geocoding.fallback_client import FallbackGeocodingProvider
 
-    if settings.geocoding_provider == "locationiq":
-        from src.geocoding.locationiq_client import LocationIQGeocodingProvider
+    disponibles: list[tuple[str, GeocodingProvider]] = []
 
-        return LocationIQGeocodingProvider()
+    def _add(nombre: str, fabrica):
+        try:
+            disponibles.append((nombre, fabrica()))
+        except Exception:
+            logger.warning("Proveedor %s no disponible, se omite del respaldo.", nombre)
 
+    # Google (si hay key)
+    if settings.google_maps_api_key:
+        _add("google", lambda: _import_google())
+
+    # LocationIQ (si hay key)
+    if settings.locationiq_api_key:
+        _add("locationiq", _import_locationiq)
+
+    # Nominatim (siempre disponible, gratuito sin key)
+    _add("nominatim", _import_nominatim)
+
+    # Reordenar: el proveedor configurado primero, respetando el resto como respaldo
+    nombre_preferido = settings.geocoding_provider
+    disponibles.sort(key=lambda item: 0 if item[0] == nombre_preferido else 1)
+
+    if not disponibles:
+        # Fallback mínimo: Nominatim (gratis, sin key) — imposible que no esté presente
+        _add("nominatim", _import_nominatim)
+
+    providers = [p for _, p in disponibles]
+    names = [n for n, _ in disponibles]
+    return FallbackGeocodingProvider(providers, names)
+
+
+def _import_nominatim():
     from src.geocoding.nominatim_client import NominatimGeocodingProvider
-
     return NominatimGeocodingProvider()
+
+
+def _import_locationiq():
+    from src.geocoding.locationiq_client import LocationIQGeocodingProvider
+    return LocationIQGeocodingProvider()
+
+
+def _import_google():
+    from src.geocoding.google_maps_client import GeocodingClient
+    return GeocodingClient()
 
 
 def _compute_route(
