@@ -13,7 +13,7 @@ from src.ai_normalization.normalizer import normalize_addresses
 from src.config import settings
 from src.exceptions.exception_manager import list_exceptions
 from src.geocoding.base import GeocodingProvider
-from src.geocoding.service import geocode_passengers
+from src.geocoding.service import ProgressCallback, geocode_passengers
 from src.ingestion.excel_loader import load_passengers
 from src.models.schemas import RutaOptimizada, SentidoRuta
 from src.models.schemas import Pasajero
@@ -23,11 +23,16 @@ from src.persistence.repository import save_route
 logger = logging.getLogger(__name__)
 
 
-def run_geocoding_pipeline(excel_path: str) -> list[Pasajero]:
+def run_geocoding_pipeline(
+    excel_path: str,
+    progress_callback: ProgressCallback | None = None,
+) -> list[Pasajero]:
     """Fase 1 -> Fase 2 -> Fase 3, sin ruteo: ingesta, normalización IA y geocodificación real.
 
     Cada Pasajero devuelto tiene latitud/longitud reales (obtenidas del proveedor configurado)
     o None si no pudo geolocalizarse — nunca un valor inventado.
+
+    `progress_callback` se reenvía a la geocodificación para reportar progreso en tiempo real.
     """
     logger.info("=== Fase 1: Ingesta === (%s)", excel_path)
     passengers = load_passengers(excel_path)
@@ -38,7 +43,7 @@ def run_geocoding_pipeline(excel_path: str) -> list[Pasajero]:
 
     logger.info("=== Fase 3: Validación y Geocodificación (%s) ===", settings.geocoding_provider)
     geo_provider = _build_geocoding_provider()
-    passengers = geocode_passengers(passengers, geo_provider)
+    passengers = geocode_passengers(passengers, geo_provider, progress_callback)
 
     resumen = list_exceptions(passengers)
     if resumen:

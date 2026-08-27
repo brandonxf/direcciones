@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 
 from src.geocoding.base import GeocodingProvider
 from src.models.schemas import EstadoGeocodificacion, Pasajero
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[int, int, Pasajero], None]
 
 
 def _sin_numero_de_placa(direccion: str) -> str | None:
@@ -61,13 +64,21 @@ def _geocodificar_con_reintentos(direccion: str, provider: GeocodingProvider) ->
     return None, None
 
 
-def geocode_passengers(passengers: list[Pasajero], provider: GeocodingProvider) -> list[Pasajero]:
+def geocode_passengers(
+    passengers: list[Pasajero],
+    provider: GeocodingProvider,
+    progress_callback: ProgressCallback | None = None,
+) -> list[Pasajero]:
     """RF-07/RF-08: geocodifica cada dirección normalizada, con reintentos de precisión decreciente.
     RF-09: registra en estado EXCEPCION las que no logran ser geolocalizadas, sin detener el flujo.
+
+    Si se pasa `progress_callback`, se invoca con (indice_actual, total, pasajero) tras procesar
+    cada pasajero, para reportar progreso en tiempo real (índice 1-based).
     """
     exitosos = 0
     aproximados = 0
-    for pasajero in passengers:
+    total = len(passengers)
+    for i, pasajero in enumerate(passengers, start=1):
         direccion = pasajero.direccion_normalizada or pasajero.direccion_original
         try:
             coords, nota = _geocodificar_con_reintentos(direccion, provider)
@@ -75,12 +86,16 @@ def geocode_passengers(passengers: list[Pasajero], provider: GeocodingProvider) 
             logger.error("Error consultando el servicio de geocodificación para '%s': %s", direccion, exc)
             pasajero.estado = EstadoGeocodificacion.EXCEPCION
             pasajero.error_detalle = f"Error de servicio: {exc}"
+            if progress_callback:
+                progress_callback(i, total, pasajero)
             continue
 
         if coords is None:
             pasajero.estado = EstadoGeocodificacion.EXCEPCION
             pasajero.error_detalle = "Dirección no geolocalizable tras el saneamiento con IA."
             logger.warning("Excepción de geocodificación: %s (%s)", pasajero.nombre, direccion)
+            if progress_callback:
+                progress_callback(i, total, pasajero)
             continue
 
         pasajero.latitud, pasajero.longitud = coords
@@ -90,8 +105,9 @@ def geocode_passengers(passengers: list[Pasajero], provider: GeocodingProvider) 
         if nota:
             aproximados += 1
             logger.info("Geocodificado de forma aproximada: %s (%s)", pasajero.nombre, nota)
+        if progress_callback:
+            progress_callback(i, total, pasajero)
 
-    total = len(passengers)
     tasa = (exitosos / total * 100) if total else 0.0
     logger.info(
         "Geocodificación: %d/%d exitosos (%.1f%%), de los cuales %d aproximados.",

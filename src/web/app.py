@@ -11,21 +11,24 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import time
 from pathlib import Path
 
 from flask import Flask, Response, flash, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
-
 from src.config import BASE_DIR, configure_logging
 from src.export.excel_exporter import export_passengers_to_excel, summarize
 from src.models.schemas import SentidoRuta
+from src.persistence.database import init_db
 from src.persistence.repository import get_route_detail, get_route_history
 from src.pipeline import run_geocoding_pipeline, run_pipeline
 
 configure_logging()
 logger = logging.getLogger(__name__)
+
+init_db()
 
 UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -72,6 +75,81 @@ def geocodificar():
         "archivo": output_filename,
     }
     return render_template("index.html", resultado=resultado)
+
+
+@app.route("/geocodificar/progreso", methods=["POST"])
+def geocodificar_progreso():
+    """Mismo flujo que `/geocodificar` pero transmitiendo progreso en tiempo real vía SSE."""
+    archivo = request.files.get("excel")
+    if not archivo or archivo.filename == "":
+        flash("Debes seleccionar un archivo Excel/CSV.")
+        return redirect(url_for("index"))
+
+    filename = secure_filename(archivo.filename)
+    upload_path = UPLOAD_DIR / filename
+    archivo.save(upload_path)
+
+    from queue import Empty, Queue
+    from flask import stream_with_context
+
+    cola = Queue()
+
+    def _en_cola(datos: dict) -> None:
+        cola.put(("evento", datos))
+
+    def _cerrar() -> None:
+        cola.put(("fin", None))
+
+    def _emit():
+        def _progreso(i: int, total: int, pasajero):
+            _en_cola({
+                "tipo": "progreso",
+                "indice": i,
+                "total": total,
+                "identificador": pasajero.identificador,
+                "nombre": pasajero.nombre,
+                "direccion": pasajero.direccion_normalizada or pasajero.direccion_original,
+                "latitud": pasajero.latitud,
+                "longitud": pasajero.longitud,
+                "estado": pasajero.estado.value,
+                "nota_precision": pasajero.nota_precision,
+            })
+
+        # Se dispara el procesamiento en un hilo de fondo; el generador principal
+        # entrega los eventos de la cola mientras llegan.
+        import threading
+        def _trabajo():
+            try:
+                passengers = run_geocoding_pipeline(str(upload_path), progress_callback=_progreso)
+            except Exception as exc:
+                logger.exception("Error procesando el archivo: %s", exc)
+                _en_cola({"tipo": "error", "mensaje": str(exc)})
+                _cerrar()
+                return
+
+            stem = Path(filename).stem
+            output_filename = f"{stem}_geocodificado_{int(time.time())}.xlsx"
+            export_passengers_to_excel(passengers, OUTPUT_DIR / output_filename)
+            _en_cola({"tipo": "fin", "archivo": output_filename, "resumen": summarize(passengers)})
+            _cerrar()
+
+        threading.Thread(target=_trabajo, daemon=True).start()
+
+        yield "retry: 2000\n\n"
+        while True:
+            try:
+                marca, datos = cola.get(timeout=1.0)
+            except Empty:
+                continue
+            if marca == "fin":
+                break
+            yield f"data: {json.dumps(datos, ensure_ascii=False)}\n\n"
+
+    return Response(
+        stream_with_context(_emit()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.route("/descargar-excel/<path:filename>")
