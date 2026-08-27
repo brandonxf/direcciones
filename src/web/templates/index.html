@@ -281,9 +281,16 @@
         var coords = document.createElement('span');
         coords.className = 'prog-coords';
         var tieneCoords = d.latitud !== null && d.latitud !== undefined && d.longitud !== null && d.longitud !== undefined;
+        var esAproximada = tieneCoords && !!d.nota_precision;
         if (tieneCoords) {
-          coords.textContent = d.latitud.toFixed(6) + ', ' + d.longitud.toFixed(6);
-          fila.style.background = 'var(--success-bg)';
+          if (esAproximada) {
+            var badge = document.createElement('span');
+            badge.className = 'prog-badge aproximado';
+            badge.textContent = 'Aproximado';
+            coords.appendChild(badge);
+          }
+          coords.appendChild(document.createTextNode(d.latitud.toFixed(6) + ', ' + d.longitud.toFixed(6)));
+          fila.style.background = esAproximada ? 'var(--warning-bg)' : 'var(--success-bg)';
         } else {
           coords.textContent = 'No encontrada';
           fila.style.background = 'var(--danger-bg)';
@@ -310,6 +317,13 @@
         fila.appendChild(dir);
         fila.appendChild(coords);
         fila.appendChild(btn);
+
+        if (esAproximada) {
+          var nota = document.createElement('span');
+          nota.className = 'prog-nota';
+          nota.textContent = d.nota_precision;
+          fila.appendChild(nota);
+        }
 
         lista.appendChild(fila);
         focoRow = fila;

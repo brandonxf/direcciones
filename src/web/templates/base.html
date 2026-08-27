@@ -16,6 +16,9 @@
       --danger-bg: #fef3f2;
       --success-bg: #ecfdf3;
       --success-text: #027a48;
+      --warning-bg: #fffaeb;
+      --warning-text: #b54708;
+      --warning-border: #f5c761;
     }
     * { box-sizing: border-box; }
     body {
@@ -122,6 +125,7 @@
     }
     .prog-row {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 0.75rem;
       padding: 0.55rem 0.75rem;
@@ -146,6 +150,28 @@
     }
     .prog-btn a:hover { background: var(--primary-hover); }
     .prog-btn .sin-mapa { color: var(--danger); font-size: 0.8rem; }
+    .prog-badge {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      margin-right: 0.4rem;
+      vertical-align: middle;
+    }
+    .prog-badge.aproximado {
+      background: var(--warning-border);
+      color: var(--warning-text);
+    }
+    .prog-nota {
+      flex: 1 0 100%;
+      font-size: 0.74rem;
+      color: var(--warning-text);
+      padding-left: calc(2.2rem + 9rem + 0.75rem + 0.75rem);
+      margin-top: -0.3rem;
+    }
     .fase-block { margin-bottom: 1.2rem; }
     .fase-head {
       display: flex;

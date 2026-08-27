@@ -22,6 +22,24 @@ USER_AGENT = "SistemaOptimizacionRutas/1.0 (uso educativo/desarrollo)"
 MIN_INTERVAL_SECONDS = 1.1
 FALLBACK_RATE_LIMIT_SECONDS = 5.0
 
+# Campos de 'address' (con addressdetails=1) que indican que el resultado de Nominatim tiene
+# una granularidad útil para ubicar un pasajero (calle, barrio/sector o predio), y no solo el
+# centroide de una ciudad, departamento o país completo.
+#
+# Hallazgo real: cuando el barrio de una dirección no está bien escrito ni siquiera Nominatim
+# lo reconoce, el motor de búsqueda de OSM a veces ignora el token no reconocido y devuelve un
+# resultado válido pero demasiado genérico (el centro administrativo de "Barranquilla,
+# Atlántico"). Esto hace que pasajeros con direcciones completamente distintas terminen con
+# EXACTAMENTE las mismas coordenadas, lo cual rompe la optimización de rutas sin que se note
+# (el resultado se reporta como "geocodificado" con éxito). Para evitarlo, se descartan los
+# resultados cuyo 'address' no incluya ningún campo de esta lista: quedan como "no encontrada"
+# y el pasajero cae en Gestión de Excepciones (RF-09) para revisión manual, en vez de un punto
+# falso en el mapa.
+CAMPOS_GRANULARIDAD_MINIMA = {
+    "road", "residential", "pedestrian", "house_number", "building",
+    "suburb", "neighbourhood", "quarter", "city_district",
+}
+
 
 class RateLimitError(Exception):
     """Servicio de geocodificación limitando temporalmente la IP del usuario (HTTP 429)."""
@@ -46,6 +64,7 @@ class NominatimGeocodingProvider(GeocodingProvider):
             "q": address,
             "format": "json",
             "limit": 1,
+            "addressdetails": "1",
             "countrycodes": settings.nominatim_countrycodes,
             "viewbox": settings.nominatim_viewbox,
             "bounded": "1" if settings.nominatim_bounded else "0",
@@ -75,7 +94,18 @@ class NominatimGeocodingProvider(GeocodingProvider):
         results = response.json()
         if not results:
             return None
-        return float(results[0]["lat"]), float(results[0]["lon"])
+
+        resultado = results[0]
+        direccion_resultado = resultado.get("address", {})
+        if not CAMPOS_GRANULARIDAD_MINIMA.intersection(direccion_resultado.keys()):
+            logger.info(
+                "Descartando coincidencia demasiado genérica (solo a nivel de ciudad/"
+                "departamento) para '%s': %s",
+                address, resultado.get("display_name"),
+            )
+            return None
+
+        return float(resultado["lat"]), float(resultado["lon"])
 
 
 def _parse_retry_after(response) -> float:

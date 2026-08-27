@@ -32,10 +32,17 @@
       </thead>
       <tbody>
         {% for parada in ruta.paradas %}
-          <tr>
+          <tr{% if parada.pasajero.nota_precision %} style="background: var(--warning-bg);"{% endif %}>
             <td>{{ parada.orden }}</td>
             <td>{{ parada.pasajero.nombre }}</td>
-            <td>{{ parada.pasajero.direccion_normalizada }}</td>
+            <td>
+              {{ parada.pasajero.direccion_normalizada }}
+              {% if parada.pasajero.nota_precision %}
+                <br>
+                <span class="prog-badge aproximado">Aproximado</span>
+                <span style="color: var(--warning-text); font-size: 0.78rem;">{{ parada.pasajero.nota_precision }}</span>
+              {% endif %}
+            </td>
             <td>
               {{ '%.1f'|format(parada.distancia_desde_anterior_m / 1000) }} km
               / {{ '%.0f'|format(parada.duracion_desde_anterior_s / 60) }} min
