@@ -113,6 +113,7 @@ def geocodificar_progreso():
                 "longitud": pasajero.longitud,
                 "estado": pasajero.estado.value,
                 "nota_precision": pasajero.nota_precision,
+                "advertencia_ia": pasajero.advertencia_ia,
             })
 
         def _log_linea(mensaje: str):

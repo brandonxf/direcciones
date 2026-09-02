@@ -15,7 +15,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 class Settings:
     nvidia_api_key: str = os.getenv("NVIDIA_API_KEY", "")
     nvidia_base_url: str = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-    nvidia_model: str = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-nano-30b-a3b")
+    nvidia_model: str = os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b")
 
     google_maps_api_key: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
 

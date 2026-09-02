@@ -14,7 +14,7 @@ import logging
 
 import requests
 
-from src.geocoding.base import GeocodingProvider
+from src.geocoding.base import GeocodingProvider, ResultadoGeocodificacion
 from src.geocoding.nominatim_client import RateLimitError
 
 logger = logging.getLogger(__name__)
@@ -59,9 +59,23 @@ class FallbackGeocodingProvider(GeocodingProvider):
         return False
 
     def geocode(self, address: str) -> tuple[float, float] | None:
-        return self._geocode(address, _intentos_restantes=MAX_INTENTOS_TOTALES)
+        return self._ejecutar(lambda p: p.geocode(address), address, MAX_INTENTOS_TOTALES)
 
-    def _geocode(self, address: str, _intentos_restantes: int) -> tuple[float, float] | None:
+    def geocode_detallado(
+        self,
+        address: str,
+        *,
+        via: str | None = None,
+        barrio: str | None = None,
+        municipio: str | None = None,
+    ) -> ResultadoGeocodificacion | None:
+        return self._ejecutar(
+            lambda p: p.geocode_detallado(address, via=via, barrio=barrio, municipio=municipio),
+            address,
+            MAX_INTENTOS_TOTALES,
+        )
+
+    def _ejecutar(self, operacion, address: str, _intentos_restantes: int):
         if _intentos_restantes <= 0:
             logger.error(
                 "Todos los proveedores de geocodificación fallaron para '%s'. "
@@ -72,7 +86,7 @@ class FallbackGeocodingProvider(GeocodingProvider):
         proveedor = self._providers[self._active_index]
         nombre = self._names[self._active_index]
         try:
-            resultado = proveedor.geocode(address)
+            resultado = operacion(proveedor)
         except Exception as exc:  # noqa: BLE001 - capturamos cualquier fallo para decidir failover
             self._fallos_consecutivos += 1
             if self._es_error_servicio(exc) and self._fallos_consecutivos >= UMBRAL_CONMUTACION:
@@ -83,7 +97,7 @@ class FallbackGeocodingProvider(GeocodingProvider):
                     nombre, address, exc, self._fallos_consecutivos,
                 )
             # Reintentamos (con el proveedor ahora activo o el mismo) hasta agotar intentos
-            return self._geocode(address, _intentos_restantes - 1)
+            return self._ejecutar(operacion, address, _intentos_restantes - 1)
         else:
             # Éxito (resultado None = dirección no encontrada, es válido): reinicia el contador
             self._fallos_consecutivos = 0

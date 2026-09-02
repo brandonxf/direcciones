@@ -22,9 +22,12 @@ def export_passengers_to_excel(passengers: list[Pasajero], output_path: str | Pa
             "direccion_original": p.direccion_original,
             "barrio": p.barrio,
             "direccion_normalizada": p.direccion_normalizada,
+            "barrio_detectado": p.barrio_normalizado,
+            "municipio_detectado": p.municipio_normalizado,
             "latitud": p.latitud,  # None si no se pudo geocodificar (nunca un valor inventado)
             "longitud": p.longitud,
             "estado": p.estado.value,
+            "advertencia_ia": p.advertencia_ia,  # aviso de la Fase 2: dirección incompleta/ambigua
             "nota_precision": p.nota_precision,
             "error_detalle": p.error_detalle,
         })

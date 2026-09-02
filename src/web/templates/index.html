@@ -1,91 +1,97 @@
 {% extends "base.html" %}
 {% block title %}Geocodificar pasajeros — Atlántico{% endblock %}
 {% block content %}
-  <div class="card">
-    <h2 style="margin-top:0;">Geocodificar direcciones de pasajeros</h2>
-    <p class="muted">
-      Sube un Excel con columnas <code>identificador</code>, <code>nombre</code>,
-      <code>direccion</code> (y opcionalmente <code>turno</code>, <code>barrio</code>). El
-      sistema corrige el formato de cada dirección y consulta su latitud/longitud reales contra
-      el servicio de geocodificación — nunca se inventan coordenadas: lo que no se puede ubicar
-      queda marcado como excepción para revisión manual.
-    </p>
-    <p class="muted">
-      <strong>Recomendado:</strong> incluye la columna <code>barrio</code> cuando la conozcas.
-      En el Atlántico es común que el mismo nombre de calle (ej. "Calle 26") se repita en varios
-      barrios de un mismo municipio — sin el barrio, el sistema puede confundir la calle
-      correcta y dar una coordenada de un sector distinto.
-    </p>
+  <div class="page-head">
+    <h2>Geocodificar direcciones de pasajeros</h2>
+    <p>Sube un Excel de pasajeros y descarga otro con la latitud y longitud reales de cada
+      dirección. Nunca se inventan coordenadas: lo que no se puede ubicar queda marcado como
+      excepción para revisión manual.</p>
+  </div>
+
+  <div class="card pad-lg">
+    <div class="callout">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 3 7v6c0 5 3.8 8.4 9 9 5.2-.6 9-4 9-9V7z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span><strong>Incluye la columna <code>barrio</code></strong> cuando la conozcas. En el
+        Atlántico el mismo nombre de calle (ej. «Calle 26») se repite en varios barrios de un
+        mismo municipio; sin el barrio, el sistema puede ubicar un sector equivocado.</span>
+    </div>
+
     <form id="geocodificar-form" enctype="multipart/form-data">
       <div class="field">
-        <label for="excel">Archivo Excel/CSV de pasajeros</label>
-        <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+        <label>Archivo Excel/CSV de pasajeros</label>
+        <div class="dropzone" id="dropzone">
+          <div class="dz-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+          </div>
+          <div class="dz-title">Arrastra tu archivo aquí o haz clic para elegir</div>
+          <div class="dz-hint">Columnas: <code>identificador</code>, <code>nombre</code>, <code>direccion</code> · opcionales <code>turno</code>, <code>barrio</code></div>
+          <div class="dz-file" id="dz-file" hidden></div>
+          <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+        </div>
       </div>
-      <button type="submit" id="btn-submit">Geocodificar</button>
+      <button type="submit" id="btn-submit">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        Geocodificar
+      </button>
     </form>
   </div>
 
-  <div id="progreso-panel" style="display:none;" class="card">
-    <h2 style="margin-top:0;">Procesando direcciones</h2>
+  <div id="progreso-panel" hidden class="card pad-lg">
+    <h2>Procesando direcciones</h2>
+    <p class="card-sub">Limpieza con IA y consulta de coordenadas reales, en vivo.</p>
 
     <div class="fase-block" id="fase-limpieza">
       <div class="fase-head">
-        <span class="fase-title" id="fase-limpieza-titulo">1. Limpieza de datos (normalización IA)</span>
+        <span class="fase-title" id="fase-limpieza-titulo">1 · Limpieza de datos (normalización IA)</span>
         <span class="fase-estado" id="fase-limpieza-estado">en espera</span>
       </div>
-      <div class="progress-track">
-        <div id="progress-bar-limpieza" class="progress-fill" style="width:0%;"></div>
-      </div>
-      <p id="progress-text-limpieza" class="muted">0 / 0</p>
+      <div class="progress-track"><div id="progress-bar-limpieza" class="progress-fill"></div></div>
+      <p id="progress-text-limpieza" class="muted" style="margin:.4rem 0 0;">0 / 0</p>
     </div>
 
     <div class="fase-block" id="fase-geo">
       <div class="fase-head">
-        <span class="fase-title" id="fase-geo-titulo">2. Geocodificación (obtención de coordenadas)</span>
+        <span class="fase-title" id="fase-geo-titulo">2 · Geocodificación (obtención de coordenadas)</span>
         <span class="fase-estado" id="fase-geo-estado">en espera</span>
       </div>
-      <div class="progress-track">
-        <div id="progress-bar" class="progress-fill" style="width:0%;"></div>
-      </div>
-      <p id="progress-text" class="muted">0 / 0</p>
+      <div class="progress-track"><div id="progress-bar" class="progress-fill"></div></div>
+      <p id="progress-text" class="muted" style="margin:.4rem 0 0;">0 / 0</p>
     </div>
 
-    <div id="lista-progreso" style="margin-top:1rem;"></div>
+    <div id="lista-progreso" class="list" style="margin-top:1.1rem;"></div>
 
-    <details id="logs-detalle" style="margin-top:1.2rem;">
-      <summary class="muted" style="cursor:pointer;">Ver registro de ejecución (logs de consola)</summary>
+    <details id="logs-detalle" style="margin-top:1.1rem;">
+      <summary class="muted">Ver registro de ejecución (logs de consola)</summary>
       <div id="logs-contenedor" class="logs-box"></div>
     </details>
   </div>
 
-  <div id="resultado-panel" style="display:none;" class="card">
-    <h2 style="margin-top:0;">Resultado</h2>
-    <div class="summary">
-      <div>
-        <div class="value" id="res-total">0</div>
-        <div class="label">Pasajeros procesados</div>
-      </div>
-      <div>
-        <div class="value" id="res-exitosos" style="color:#027a48;">0</div>
-        <div class="label" id="res-exitosos-label">Geocodificados</div>
-      </div>
-      <div>
-        <div class="value" id="res-fallidos" style="color:#b42318;">0</div>
-        <div class="label">Sin geolocalizar</div>
-      </div>
+  <div id="resultado-panel" hidden class="card pad-lg">
+    <h2>Resultado</h2>
+    <p class="card-sub">Descarga el Excel con las columnas de latitud/longitud y las notas de precisión.</p>
+    <div class="stats" style="margin-bottom:1.4rem;">
+      <div class="stat"><div class="v" id="res-total">0</div><div class="l">Procesados</div></div>
+      <div class="stat ok"><div class="v" id="res-exitosos">0</div><div class="l">Geocodificados</div></div>
+      <div class="stat bad"><div class="v" id="res-fallidos">0</div><div class="l">Sin ubicar</div></div>
     </div>
-    <p id="descargar-enlace" style="margin-top:1.5rem;"></p>
+    <p id="descargar-enlace" style="margin:0;"></p>
   </div>
 
   <p class="muted">¿Necesitas además calcular la ruta óptima de recogida/entrega?
     <a href="{{ url_for('ruta_form') }}">Ir al cálculo de rutas &rarr;</a>
   </p>
+{% endblock %}
 
+{% block scripts %}
   <script>
     (function () {
       var form = document.getElementById('geocodificar-form');
       var btn = document.getElementById('btn-submit');
+      var btnHtml = btn.innerHTML;
       var panel = document.getElementById('progreso-panel');
+      var dropzone = document.getElementById('dropzone');
+      var fileInput = document.getElementById('excel');
+      var dzFile = document.getElementById('dz-file');
 
       var barraLimpieza = document.getElementById('progress-bar-limpieza');
       var textoLimpieza = document.getElementById('progress-text-limpieza');
@@ -100,15 +106,35 @@
       var logsCont = document.getElementById('logs-contenedor');
       var focoRow = null;
 
+      // --- Dropzone niceties ---
+      function showFile() {
+        if (fileInput.files && fileInput.files[0]) {
+          dzFile.textContent = '✓ ' + fileInput.files[0].name;
+          dzFile.hidden = false;
+        } else {
+          dzFile.hidden = true;
+        }
+      }
+      fileInput.addEventListener('change', showFile);
+      ['dragenter', 'dragover'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.add('is-drag'); });
+      });
+      ['dragleave', 'drop'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.remove('is-drag'); });
+      });
+      dropzone.addEventListener('drop', function (e) {
+        if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; showFile(); }
+      });
+
       form.addEventListener('submit', function (e) {
         e.preventDefault();
-        var excel = document.getElementById('excel').files[0];
+        var excel = fileInput.files[0];
         if (!excel) { alert('Selecciona un archivo Excel/CSV.'); return; }
 
         btn.disabled = true;
-        btn.textContent = 'Procesando…';
-        panel.style.display = 'block';
-        resPanel.style.display = 'none';
+        btn.innerHTML = '<span class="btn-spinner"></span> Procesando…';
+        panel.hidden = false;
+        resPanel.hidden = true;
 
         barraLimpieza.style.width = '0%';
         textoLimpieza.textContent = '0 / 0';
@@ -123,6 +149,7 @@
         lista.innerHTML = '';
         logsCont.innerHTML = '';
         focoRow = null;
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
         var fd = new FormData();
         fd.append('excel', excel);
@@ -140,7 +167,7 @@
           })
           .finally(function () {
             btn.disabled = false;
-            btn.textContent = 'Geocodificar';
+            btn.innerHTML = btnHtml;
           });
       });
 
@@ -217,37 +244,22 @@
         if (focoRow) focoRow.scrollIntoView({ block: 'nearest' });
       }
 
+      function cell(cls, txt) {
+        var s = document.createElement('span');
+        s.className = cls;
+        if (txt !== undefined) { s.textContent = txt; s.title = txt || ''; }
+        return s;
+      }
+
       function appendRowLimpieza(d) {
         var fila = document.createElement('div');
         fila.className = 'prog-row';
-        fila.style.background = '#eef4ff';
-
-        var idx = document.createElement('span');
-        idx.className = 'prog-index';
-        idx.textContent = d.indice || '';
-
-        var nombre = document.createElement('span');
-        nombre.className = 'prog-nombre';
-        nombre.textContent = d.nombre || '';
-        nombre.title = d.nombre || '';
-
-        var dir = document.createElement('span');
-        dir.className = 'prog-dir';
-        dir.textContent = d.direccion || '';
-
-        var coords = document.createElement('span');
-        coords.className = 'prog-coords';
-        coords.textContent = 'limpiada';
-
-        var btn = document.createElement('span');
-        btn.className = 'prog-btn';
-
-        fila.appendChild(idx);
-        fila.appendChild(nombre);
-        fila.appendChild(dir);
-        fila.appendChild(coords);
-        fila.appendChild(btn);
-
+        fila.style.background = 'var(--primary-soft)';
+        fila.appendChild(cell('prog-index', d.indice || ''));
+        fila.appendChild(cell('prog-nombre', d.nombre || ''));
+        fila.appendChild(cell('prog-dir', d.direccion || ''));
+        fila.appendChild(cell('prog-coords', 'limpiada'));
+        fila.appendChild(cell('prog-btn'));
         lista.appendChild(fila);
         focoRow = fila;
       }
@@ -263,20 +275,9 @@
       function appendRow(d) {
         var fila = document.createElement('div');
         fila.className = 'prog-row';
-
-        var idx = document.createElement('span');
-        idx.className = 'prog-index';
-        idx.textContent = d.indice || '';
-
-        var nombre = document.createElement('span');
-        nombre.className = 'prog-nombre';
-        nombre.textContent = d.nombre || d.identificador || '';
-        nombre.title = d.nombre || d.identificador || '';
-
-        var dir = document.createElement('span');
-        dir.className = 'prog-dir';
-        dir.textContent = d.direccion || '';
-        dir.title = d.direccion || '';
+        fila.appendChild(cell('prog-index', d.indice || ''));
+        fila.appendChild(cell('prog-nombre', d.nombre || d.identificador || ''));
+        fila.appendChild(cell('prog-dir', d.direccion || ''));
 
         var coords = document.createElement('span');
         coords.className = 'prog-coords';
@@ -285,8 +286,8 @@
         if (tieneCoords) {
           if (esAproximada) {
             var badge = document.createElement('span');
-            badge.className = 'prog-badge aproximado';
-            badge.textContent = 'Aproximado';
+            badge.className = 'prog-badge';
+            badge.textContent = 'Aprox.';
             coords.appendChild(badge);
           }
           coords.appendChild(document.createTextNode(d.latitud.toFixed(6) + ', ' + d.longitud.toFixed(6)));
@@ -303,7 +304,7 @@
           enlace.href = 'https://www.google.com/maps/search/?api=1&query=' + d.latitud + ',' + d.longitud;
           enlace.target = '_blank';
           enlace.rel = 'noopener';
-          enlace.textContent = 'Ver en Google Maps';
+          enlace.textContent = 'Ver en mapa';
           btn.appendChild(enlace);
         } else {
           var sinMapa = document.createElement('span');
@@ -312,17 +313,18 @@
           btn.appendChild(sinMapa);
         }
 
-        fila.appendChild(idx);
-        fila.appendChild(nombre);
-        fila.appendChild(dir);
         fila.appendChild(coords);
         fila.appendChild(btn);
 
-        if (esAproximada) {
+        var notas = [];
+        if (esAproximada) { notas.push(d.nota_precision); }
+        if (d.advertencia_ia) { notas.push('IA: ' + d.advertencia_ia); }
+        if (notas.length) {
           var nota = document.createElement('span');
           nota.className = 'prog-nota';
-          nota.textContent = d.nota_precision;
+          nota.textContent = notas.join(' — ');
           fila.appendChild(nota);
+          if (!esAproximada && tieneCoords) { fila.style.background = 'var(--warning-bg)'; }
         }
 
         lista.appendChild(fila);
@@ -336,19 +338,21 @@
         estadoGeo.textContent = 'completada';
         estadoGeo.className = 'fase-estado hecha';
 
-        resPanel.style.display = 'block';
+        resPanel.hidden = false;
         var r = d.resumen;
         document.getElementById('res-total').textContent = r.total;
         document.getElementById('res-exitosos').textContent = r.exitosos + ' (' + Math.round(r.tasa_exito) + '%)';
         document.getElementById('res-fallidos').textContent = r.fallidos;
         var enlace = document.createElement('a');
         enlace.className = 'button-link';
+        enlace.setAttribute('download', '');
         enlace.href = "{{ url_for('descargar_excel', filename='') }}" + encodeURIComponent(d.archivo);
-        enlace.textContent = 'Descargar Excel (.xlsx)';
+        enlace.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg> Descargar Excel (.xlsx)';
         document.getElementById('descargar-enlace').innerHTML = '';
         document.getElementById('descargar-enlace').appendChild(enlace);
         barra.style.width = '100%';
         texto.textContent = 'Completado: ' + r.exitosos + ' geocodificadas, ' + r.fallidos + ' sin ubicar';
+        resPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     })();
   </script>

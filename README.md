@@ -10,7 +10,9 @@ como función secundaria):
 
 1. **Ingesta** (`src/ingestion`) — carga y valida el Excel de pasajeros (RF-01 a RF-03).
 2. **Normalización con IA** (`src/ai_normalization`) — corrige el formato de cada dirección vía
-   NVIDIA NIM (API compatible con OpenAI), sin tocar sus coordenadas (RF-04 a RF-06).
+   NVIDIA NIM (API compatible con OpenAI), sin tocar sus coordenadas (RF-04 a RF-06). La IA
+   devuelve un objeto estructurado (`DireccionNormalizada`: dirección canónica + barrio +
+   municipio + confianza + advertencia), no solo una línea de texto — ver más abajo.
 3. **Geocodificación real** (`src/geocoding`) — obtiene lat/lng reales con Nominatim/OpenStreetMap
    por defecto (RF-07 a RF-10).
 4. *(Opcional, vía `/ruta` o `main.py`)* **Ruteo** (`src/routing`) — calcula la secuencia óptima
@@ -103,11 +105,15 @@ python -m pytest tests/ -v
 Pipeline completo probado **de punta a punta con servicios reales**, sin mocks:
 
 - **Fase 1 (Ingesta)**: probada con pytest, 5/5 pruebas pasan sin credenciales.
-- **Fase 2 (IA)**: NVIDIA NIM en vivo. Modelo: `nvidia/nemotron-3-nano-30b-a3b` (es un modelo
-  "reasoning" — requiere `extra_body={"chat_template_kwargs": {"thinking": False}}`, ya aplicado
-  en `client.py`, o la respuesta viene mezclada con su cadena de pensamiento y puede truncarse
-  antes de llegar a la dirección final). Otros modelos del catálogo (mistral-7b-instruct,
-  granite-3.0-8b-instruct, mistral-nemo-12b-instruct) no están habilitados para esta cuenta (404).
+- **Fase 2 (IA)**: NVIDIA NIM en vivo. Modelo: `nvidia/nemotron-3.5-lightning-30b-a3b` (es un
+  modelo "reasoning" — requiere `extra_body={"chat_template_kwargs": {"thinking": False}}`, ya
+  aplicado en `client.py`). Sustituye a `nvidia/nemotron-3-nano-30b-a3b`, que llegó a su fin de
+  vida el 2026-09-01 (el proveedor devuelve HTTP 410). La Fase 2 pide salida JSON estructurada
+  (`response_format=json_object`); si un modelo rechaza ese parámetro, el cliente lo desactiva
+  y confía en el parseo tolerante (extrae el primer objeto `{...}` de la respuesta). Otros
+  modelos del catálogo (mistral-7b-instruct, granite-3.0-8b-instruct, mistral-nemo-12b-instruct,
+  llama-3.1-nemotron-70b) no están habilitados para esta cuenta (404); `openai/gpt-oss-20b` sí,
+  pero devuelve JSON de forma poco fiable para este prompt.
 - **Fase 3 (Geocodificación)**: por defecto usa **Nominatim** (OpenStreetMap) — gratis, sin key,
   sin tarjeta. Probado en vivo, geocodificó correctamente direcciones de Bogotá.
 - **Fase 4 (Ruteo)**: por defecto usa **OSRM** (servidor demo público) — gratis, sin key, sin
@@ -170,6 +176,43 @@ número de placa en esa vía — la ausencia de un fallback no es una garantía 
 precisión a nivel de predio. Por eso cada fila del resultado incluye el botón "Ver en Google
 Maps": se recomienda verificar visualmente los casos críticos antes de operar con ellos.
 
+### Selección de candidato consciente del barrio (mejora de precisión)
+
+**Tercer hallazgo**: pedir `limit=1` y tomar el primer resultado de Nominatim producía puntos
+en el **barrio equivocado**. Para "Carrera 46 #79-50, Villa Country, Barranquilla" (barrio
+real en 11.005,-74.805) Nominatim devolvía primero un tramo de "Carrera 46" en Barlovento,
+**a ~3,5 km**, y el sistema lo reportaba como éxito. Además, el texto libre con `#NN-NN`
+suele devolver **cero resultados**, forzando siempre la cascada a nivel de calle.
+
+**Solución** (`src/geocoding/candidate_scoring.py` + `NominatimGeocodingProvider.geocode_detallado`):
+se piden **hasta 10 candidatos** por consulta (texto libre + consulta estructurada
+`street`/`city`/`county`) y se **puntúa** cada uno contra la dirección buscada:
+
+- +5 si el `suburb`/`neighbourhood` del candidato coincide con el barrio del pasajero
+  (comparación sin tildes, sin palabras de relleno, con solape de tokens);
+- +3 si el nombre de vía (`Carrera 46`) coincide con el `road` del candidato;
+- +2 si trae número de placa; +1 si está dentro del viewbox del Atlántico;
+- **candidatos en otro municipio se descartan** (causa de errores de decenas de km).
+
+Se elige el de mayor puntaje y la evaluación se **corta en cuanto hay coincidencia fuerte**
+(vía + barrio) para no sobrecargar a Nominatim. La `nota_precision` refleja el nivel real
+alcanzado: `None` (vía + barrio + placa), "calle y barrio correctos, sin placa", "ubicado
+dentro del barrio correcto, calle no confirmada", o "solo el municipio". Si ningún candidato
+está en el municipio correcto, la fila queda como **excepción** (RF-09) en vez de un punto
+lejano falso.
+
+En el dataset de 20 direcciones esto movió varios puntos del barrio equivocado al correcto
+(p. ej. el caso de Villa Country) sin bajar la tasa de éxito.
+
+### Robustez del módulo de IA ante modelos *reasoning*
+
+El modelo por defecto es "reasoning" y ocasionalmente filtra su cadena de pensamiento o
+trunca la respuesta, dejando un JSON no parseable (~10% de las filas en una prueba). Ahora
+`_parsear_respuesta` (1) elimina los bloques `<think>...</think>`, (2) decodifica **todos** los
+objetos `{...}` del texto y se queda con el último válido que tenga `direccion`, y (3) si no
+hay ninguno lanza `RespuestaIAIlegible`, lo que hace que `normalize()` **reintente** (hasta 4
+veces con backoff) antes de degradar la fila a confianza baja para revisión manual.
+
 ### LocationIQ: probado y descartado como proveedor por defecto
 
 Se evaluó LocationIQ (`src/geocoding/locationiq_client.py`, disponible pero **no recomendado**
@@ -222,6 +265,21 @@ Barranquilla, Atlántico") o el nombre oficial exacto tal como aparece en OpenSt
 - **Proveedor de IA intercambiable**: `AddressNormalizerClient` (`src/ai_normalization/client.py`) es una
   interfaz abstracta. La implementación por defecto usa NVIDIA NIM; cambiar a OpenAI u otro proveedor
   solo requiere una nueva clase que la implemente (RNF-09, RNF-10).
+- **Salida estructurada de la Fase 2** (`DireccionNormalizada`): la IA ya no devuelve una sola línea de
+  texto sino un objeto JSON (`response_format=json_object`) con la dirección canónica, el barrio y el
+  municipio por separado, un nivel de `confianza` (alta/media/baja) y una `advertencia` legible cuando
+  la dirección es incompleta o ambigua (p. ej. "municipio asumido como Barranquilla", "calle homónima
+  sin barrio"). Ventajas: (1) el parseo tolera que un modelo *reasoning* filtre su cadena de
+  pensamiento — se extrae el primer objeto `{...}` y, si falla, se degrada de forma segura a la
+  dirección de entrada con confianza baja; (2) la cascada de reintentos de geocodificación
+  (`src/geocoding/service.py`) usa el barrio y el municipio reales en vez de partir el string por
+  comas; (3) la `advertencia` viaja al Excel exportado (columna `advertencia_ia`) y a la interfaz web,
+  señalando qué filas conviene revisar aunque hayan sido "geocodificadas con éxito".
+- **Caché de normalización** (`src/ai_normalization/cache.py`): `CachingAddressNormalizer` envuelve
+  cualquier proveedor y memoiza el resultado por dirección de entrada (normalizada a minúsculas/espacios).
+  En una lista real de pasajeros muchas direcciones comparten calle o barrio; la caché evita repetir esas
+  llamadas al API (latencia + costo). El pipeline registra el porcentaje de llamadas evitadas al terminar
+  la Fase 2.
 - **Límite de la Directions API**: el optimizador de rutas (`src/routing/route_optimizer.py`) soporta
   hasta ~23 paradas por solicitud. Para lotes de cientos de pasajeros (RNF-01), el siguiente paso es
   agrupar por zona/vehículo y/o migrar a un solver VRP (Google OR-Tools) o a la API dedicada de

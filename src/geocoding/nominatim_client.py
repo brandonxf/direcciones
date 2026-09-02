@@ -11,10 +11,13 @@ from __future__ import annotations
 import logging
 import time
 
+import re
+
 import requests
 
 from src.config import settings
-from src.geocoding.base import GeocodingProvider
+from src.geocoding.base import GeocodingProvider, ResultadoGeocodificacion
+from src.geocoding.candidate_scoring import elegir_mejor
 
 logger = logging.getLogger(__name__)
 
@@ -54,26 +57,26 @@ class NominatimGeocodingProvider(GeocodingProvider):
         if elapsed < MIN_INTERVAL_SECONDS:
             time.sleep(MIN_INTERVAL_SECONDS - elapsed)
 
-    def geocode(self, address: str) -> tuple[float, float] | None:
-        # Ante un 429 (límite de tasa) no reintentamos aquí: si la IP está bloqueada, volver a
-        # llamar solo satura más el servicio. Lanzamos RateLimitError para que el proveedor de
-        # conmutación automática (fallback_client) cambie al respaldo sin intervención manual.
-        # Solo se reintenta internamente ante timeouts puntuales (transitorios).
+    def _buscar(self, params: dict) -> list[dict]:
+        """Ejecuta una consulta a Nominatim y devuelve la lista de resultados (con addressdetails).
+
+        Ante un 429 (límite de tasa) no reintenta aquí: lanza RateLimitError para que el
+        proveedor de conmutación automática cambie al respaldo. Solo reintenta ante timeouts.
+        """
         self._respect_rate_limit()
-        params = {
-            "q": address,
+        base = {
             "format": "json",
-            "limit": 1,
             "addressdetails": "1",
             "countrycodes": settings.nominatim_countrycodes,
             "viewbox": settings.nominatim_viewbox,
             "bounded": "1" if settings.nominatim_bounded else "0",
         }
+        base.update(params)
         for intento in range(3):
             try:
                 response = requests.get(
                     settings.nominatim_url,
-                    params=params,
+                    params=base,
                     headers={"User-Agent": USER_AGENT},
                     timeout=10,
                 )
@@ -85,27 +88,84 @@ class NominatimGeocodingProvider(GeocodingProvider):
                         "al proveedor de respaldo."
                     )
                 response.raise_for_status()
-                break
+                return response.json() or []
             except requests.exceptions.Timeout:
                 if intento == 2:
                     raise
                 time.sleep(2.0)
+        return []
 
-        results = response.json()
+    @staticmethod
+    def _es_granular(resultado: dict) -> bool:
+        """El resultado tiene al menos nivel de calle/barrio (no es el centroide de una ciudad)."""
+        return bool(CAMPOS_GRANULARIDAD_MINIMA.intersection(resultado.get("address", {}).keys()))
+
+    def geocode(self, address: str) -> tuple[float, float] | None:
+        results = [r for r in self._buscar({"q": address, "limit": 1}) if self._es_granular(r)]
         if not results:
             return None
+        return float(results[0]["lat"]), float(results[0]["lon"])
 
-        resultado = results[0]
-        direccion_resultado = resultado.get("address", {})
-        if not CAMPOS_GRANULARIDAD_MINIMA.intersection(direccion_resultado.keys()):
-            logger.info(
-                "Descartando coincidencia demasiado genérica (solo a nivel de ciudad/"
-                "departamento) para '%s': %s",
-                address, resultado.get("display_name"),
-            )
+    def geocode_detallado(
+        self,
+        address: str,
+        *,
+        via: str | None = None,
+        barrio: str | None = None,
+        municipio: str | None = None,
+    ) -> ResultadoGeocodificacion | None:
+        """Pide varios candidatos y elige el que mejor coincide con vía + barrio + municipio.
+
+        Evita el error frecuente de tomar el primer resultado y caer en un tramo de la misma
+        calle situado en OTRO barrio (ver `candidate_scoring`).
+        """
+        via = via or _via_desde_direccion(address)
+        via_sin_placa = re.sub(r"#\s*\S+", "", via or "").strip() if via else None
+
+        vistos: set[tuple] = set()
+        acumulados: list[dict] = []
+
+        def _agregar(nuevos: list[dict]) -> None:
+            for c in nuevos:
+                clave = (c.get("lat"), c.get("lon"))
+                if clave in vistos or not self._es_granular(c):
+                    continue
+                vistos.add(clave)
+                acumulados.append(c)
+
+        # Consultas de más a menos específica. Se evalúan de forma incremental y se corta en
+        # cuanto hay una coincidencia fuerte (calle + barrio), para no golpear a Nominatim de más.
+        consultas: list[dict] = [{"q": address, "limit": 10}]
+        if via_sin_placa and (barrio or municipio):
+            structured = {"limit": 10, "street": via_sin_placa, "country": "Colombia", "state": "Atlántico"}
+            structured["city"] = barrio or municipio
+            if municipio:
+                structured["county"] = municipio
+            consultas.append(structured)
+        if via_sin_placa and barrio and municipio:
+            consultas.append({"q": f"{via_sin_placa}, {barrio}, {municipio}, Atlántico", "limit": 10})
+        if barrio and municipio:
+            consultas.append({"q": f"{barrio}, {municipio}, Atlántico", "limit": 10})
+
+        mejor, nota = None, None
+        for params in consultas:
+            _agregar(self._buscar(params))
+            if not acumulados:
+                continue
+            mejor, nota = elegir_mejor(acumulados, via, barrio, municipio, settings.nominatim_viewbox)
+            if mejor is not None and nota is None:
+                break  # coincidencia fuerte: no hacen falta más consultas
+
+        if mejor is None:
             return None
+        return ResultadoGeocodificacion(float(mejor["lat"]), float(mejor["lon"]), nota)
 
-        return float(resultado["lat"]), float(resultado["lon"])
+
+def _via_desde_direccion(direccion: str) -> str | None:
+    """Extrae la parte de vía (antes de la primera coma): 'Carrera 46 #79-50, Villa Country' -> 'Carrera 46 #79-50'."""
+    if not direccion:
+        return None
+    return direccion.split(",", 1)[0].strip() or None
 
 
 def _parse_retry_after(response) -> float:

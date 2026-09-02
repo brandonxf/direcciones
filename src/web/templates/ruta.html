@@ -1,21 +1,35 @@
 {% extends "base.html" %}
-{% block title %}Cargar pasajeros — Optimización de Rutas{% endblock %}
+{% block title %}Cálculo de rutas — Optimización de Rutas{% endblock %}
 {% block content %}
-  <p class="muted"><a href="{{ url_for('index') }}">&larr; Volver a geocodificación</a></p>
-  <div class="card">
-    <h2 style="margin-top:0;">Cargar archivo de pasajeros</h2>
-    <form action="{{ url_for('ruta_procesar') }}" method="post" enctype="multipart/form-data">
+  <div class="page-head">
+    <h2>Cálculo de ruta óptima</h2>
+    <p>Flujo completo: ingesta, normalización con IA, geocodificación real y secuencia
+      óptima de paradas. Cada ruta calculada queda en el historial.</p>
+  </div>
+
+  <div class="card pad-lg">
+    <h3>Cargar archivo de pasajeros</h3>
+    <p class="card-sub">El origen debe ser una dirección de calle real (Nominatim no reconoce nombres genéricos de lugares).</p>
+    <form action="{{ url_for('ruta_procesar') }}" method="post" enctype="multipart/form-data" id="ruta-form">
       <div class="field">
-        <label for="excel">Archivo Excel/CSV (columnas: identificador, nombre, direccion, turno)</label>
-        <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+        <label>Archivo Excel/CSV</label>
+        <div class="dropzone" id="dropzone">
+          <div class="dz-icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+          </div>
+          <div class="dz-title">Arrastra tu archivo aquí o haz clic para elegir</div>
+          <div class="dz-hint">Columnas: <code>identificador</code>, <code>nombre</code>, <code>direccion</code>, <code>turno</code></div>
+          <div class="dz-file" id="dz-file" hidden></div>
+          <input type="file" id="excel" name="excel" accept=".xlsx,.xls,.csv" required>
+        </div>
       </div>
       <div class="grid">
         <div class="field">
           <label for="origen">Dirección de origen (garaje / punto de partida)</label>
-          <input type="text" id="origen" name="origen" placeholder="Terminal de Transporte, Barranquilla, Atlántico" required>
+          <input type="text" id="origen" name="origen" placeholder="Calle 30 #8-60, Barranquilla, Atlántico" required>
         </div>
         <div class="field">
-          <label for="destino">Dirección de destino (opcional, por defecto = origen)</label>
+          <label for="destino">Dirección de destino (opcional)</label>
           <input type="text" id="destino" name="destino" placeholder="Igual al origen si se deja vacío">
         </div>
         <div class="field">
@@ -27,39 +41,76 @@
         </div>
         <div class="field">
           <label for="turno">Turno (opcional)</label>
-          <input type="text" id="turno" name="turno" placeholder="mañana, tarde...">
+          <input type="text" id="turno" name="turno" placeholder="mañana, tarde…">
         </div>
       </div>
-      <button type="submit">Calcular ruta óptima</button>
+      <button type="submit" id="btn-ruta">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M6 16V9a4 4 0 0 1 4-4h4M18 8v7a4 4 0 0 1-4 4h-4"/></svg>
+        Calcular ruta óptima
+      </button>
     </form>
   </div>
 
-  <div class="card">
-    <h2 style="margin-top:0;">Historial de rutas</h2>
+  <div class="card pad-lg">
+    <h3>Historial de rutas</h3>
     {% if historial %}
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th><th>Sentido</th><th>Origen</th><th>Turno</th><th>Fecha</th><th>Distancia</th><th>Duración</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in historial %}
-            <tr>
-              <td>{{ r.id }}</td>
-              <td>{{ r.sentido }}</td>
-              <td>{{ r.origen }}</td>
-              <td>{{ r.turno or '-' }}</td>
-              <td>{{ r.fecha_generacion }}</td>
-              <td>{{ '%.1f'|format(r.distancia_total_m / 1000) }} km</td>
-              <td>{{ '%.0f'|format(r.duracion_total_s / 60) }} min</td>
-              <td><a href="{{ url_for('ruta_descargar', ruta_id=r.id) }}">CSV</a></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ID</th><th>Sentido</th><th>Origen</th><th>Turno</th><th>Fecha</th><th>Distancia</th><th>Duración</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for r in historial %}
+              <tr>
+                <td>{{ r.id }}</td>
+                <td><span class="badge" style="background:var(--primary-soft);color:var(--primary-strong);border-color:transparent;">{{ r.sentido }}</span></td>
+                <td>{{ r.origen }}</td>
+                <td>{{ r.turno or '—' }}</td>
+                <td>{{ r.fecha_generacion }}</td>
+                <td>{{ '%.1f'|format(r.distancia_total_m / 1000) }} km</td>
+                <td>{{ '%.0f'|format(r.duracion_total_s / 60) }} min</td>
+                <td><a href="{{ url_for('ruta_descargar', ruta_id=r.id) }}">CSV</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
-      <p class="muted">Todavía no se ha generado ninguna ruta.</p>
+      <p class="muted" style="margin:0;">Todavía no se ha generado ninguna ruta.</p>
     {% endif %}
   </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function () {
+      var dropzone = document.getElementById('dropzone');
+      var fileInput = document.getElementById('excel');
+      var dzFile = document.getElementById('dz-file');
+      var form = document.getElementById('ruta-form');
+      var btn = document.getElementById('btn-ruta');
+
+      function showFile() {
+        if (fileInput.files && fileInput.files[0]) {
+          dzFile.textContent = '✓ ' + fileInput.files[0].name;
+          dzFile.hidden = false;
+        } else { dzFile.hidden = true; }
+      }
+      fileInput.addEventListener('change', showFile);
+      ['dragenter', 'dragover'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.add('is-drag'); });
+      });
+      ['dragleave', 'drop'].forEach(function (ev) {
+        dropzone.addEventListener(ev, function (e) { e.preventDefault(); dropzone.classList.remove('is-drag'); });
+      });
+      dropzone.addEventListener('drop', function (e) {
+        if (e.dataTransfer.files.length) { fileInput.files = e.dataTransfer.files; showFile(); }
+      });
+
+      form.addEventListener('submit', function () {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="btn-spinner"></span> Calculando ruta… (puede tardar)';
+      });
+    })();
+  </script>
 {% endblock %}

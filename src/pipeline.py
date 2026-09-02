@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from src.ai_normalization.cache import CachingAddressNormalizer
 from src.ai_normalization.client import NvidiaAddressNormalizer
 from src.ai_normalization.normalizer import NormalizationCallback, normalize_addresses
 from src.config import settings
@@ -50,14 +51,16 @@ def run_geocoding_pipeline(
     _log(f"Se cargaron {len(passengers)} pasajeros válidos desde el archivo.")
 
     _log("=== Fase 2: Saneamiento y Normalización (IA) ===")
-    ai_client = NvidiaAddressNormalizer()
+    ai_client = CachingAddressNormalizer(NvidiaAddressNormalizer())
 
     def _norm_progreso(i: int, total: int, pasajero: Pasajero) -> None:
         if log_callback:
             log_callback(f"Limpieza {i}/{total}: {pasajero.nombre} ({pasajero.direccion_normalizada or pasajero.direccion_original})")
+            if pasajero.advertencia_ia:
+                log_callback(f"  aviso IA — {pasajero.nombre}: {pasajero.advertencia_ia}")
 
     passengers = normalize_addresses(passengers, ai_client, _norm_progreso)
-    _log("Normalización completada.")
+    _log(f"Normalización completada. {ai_client.resumen()}")
 
     _log(f"=== Fase 3: Validación y Geocodificación ({settings.geocoding_provider}) ===")
     geo_provider = _build_geocoding_provider()
@@ -187,8 +190,9 @@ def run_pipeline(
     passengers = load_passengers(excel_path)
 
     logger.info("=== Fase 2: Saneamiento y Normalización (IA) ===")
-    ai_client = NvidiaAddressNormalizer()
+    ai_client = CachingAddressNormalizer(NvidiaAddressNormalizer())
     passengers = normalize_addresses(passengers, ai_client)
+    logger.info(ai_client.resumen())
 
     logger.info("=== Fase 3: Validación y Geocodificación (%s) ===", settings.geocoding_provider)
     geo_provider = _build_geocoding_provider()

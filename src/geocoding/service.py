@@ -10,6 +10,7 @@ import re
 from collections.abc import Callable
 
 from src.geocoding.base import GeocodingProvider
+from src.geocoding.candidate_scoring import normalizar
 from src.models.schemas import EstadoGeocodificacion, Pasajero
 
 logger = logging.getLogger(__name__)
@@ -39,27 +40,51 @@ def _solo_localidad(direccion: str) -> str | None:
     return localidad or None
 
 
-def _geocodificar_con_reintentos(direccion: str, provider: GeocodingProvider) -> tuple[tuple[float, float] | None, str | None]:
+def _geocodificar_con_reintentos(
+    direccion: str,
+    provider: GeocodingProvider,
+    barrio: str | None = None,
+    municipio: str | None = None,
+) -> tuple[tuple[float, float] | None, str | None]:
     """Intenta geocodificar con precisión decreciente. Devuelve (coords, nota_precision).
 
     nota_precision es None si el resultado corresponde a la consulta completa (máxima
     precisión disponible); en caso contrario describe qué tan aproximado quedó el punto.
-    """
-    coords = provider.geocode(direccion)
-    if coords is not None:
-        return coords, None
 
+    Cuando la Fase 2 (IA) identificó el barrio y el municipio por separado, se usan para que
+    el proveedor elija, entre varios candidatos, el tramo de calle que está en el barrio
+    correcto (`geocode_detallado`) — evita el error de tomar el primer resultado y caer en
+    otro barrio a varios kilómetros.
+    """
+    via = direccion.split(",", 1)[0].strip() or None
+
+    detalle = provider.geocode_detallado(direccion, via=via, barrio=barrio, municipio=municipio)
+    if detalle is not None:
+        return detalle.coords, detalle.nota_precision
+
+    # Respaldos determinísticos (para proveedores sin selección de candidato).
     sin_numero = _sin_numero_de_placa(direccion)
     if sin_numero:
         coords = provider.geocode(sin_numero)
         if coords is not None:
             return coords, "Aproximado: no se encontró el número de placa exacto; ubicación a nivel de calle/barrio."
 
-    solo_localidad = _solo_localidad(direccion)
-    if solo_localidad:
-        coords = provider.geocode(solo_localidad)
+    consulta_localidad = None
+    if barrio and municipio:
+        consulta_localidad = f"{barrio}, {municipio}"
+    elif barrio:
+        consulta_localidad = barrio
+    if consulta_localidad is None:
+        consulta_localidad = _solo_localidad(direccion)
+    if consulta_localidad:
+        coords = provider.geocode(consulta_localidad)
         if coords is not None:
             return coords, "Aproximado: solo se pudo ubicar el barrio/municipio, no la calle exacta."
+
+    if municipio and normalizar(municipio) not in normalizar(consulta_localidad):
+        coords = provider.geocode(municipio)
+        if coords is not None:
+            return coords, "Aproximado: solo se pudo ubicar el municipio, no el barrio ni la calle."
 
     return None, None
 
@@ -81,7 +106,12 @@ def geocode_passengers(
     for i, pasajero in enumerate(passengers, start=1):
         direccion = pasajero.direccion_normalizada or pasajero.direccion_original
         try:
-            coords, nota = _geocodificar_con_reintentos(direccion, provider)
+            coords, nota = _geocodificar_con_reintentos(
+                direccion,
+                provider,
+                barrio=pasajero.barrio_normalizado,
+                municipio=pasajero.municipio_normalizado,
+            )
         except Exception as exc:  # RNF-13: no perder los datos ya procesados ante fallo del servicio
             logger.error("Error consultando el servicio de geocodificación para '%s': %s", direccion, exc)
             pasajero.estado = EstadoGeocodificacion.EXCEPCION
@@ -92,7 +122,10 @@ def geocode_passengers(
 
         if coords is None:
             pasajero.estado = EstadoGeocodificacion.EXCEPCION
-            pasajero.error_detalle = "Dirección no geolocalizable tras el saneamiento con IA."
+            detalle = "Dirección no geolocalizable tras el saneamiento con IA."
+            if pasajero.advertencia_ia:
+                detalle = f"{detalle} Aviso de la IA: {pasajero.advertencia_ia}."
+            pasajero.error_detalle = detalle
             logger.warning("Excepción de geocodificación: %s (%s)", pasajero.nombre, direccion)
             if progress_callback:
                 progress_callback(i, total, pasajero)
@@ -119,7 +152,12 @@ def geocode_passengers(
 def retry_single_address(pasajero: Pasajero, corrected_address: str, provider: GeocodingProvider) -> Pasajero:
     """RF-10: corrección manual de una dirección fallida y reintento individual."""
     pasajero.direccion_normalizada = corrected_address
-    coords, nota = _geocodificar_con_reintentos(corrected_address, provider)
+    coords, nota = _geocodificar_con_reintentos(
+        corrected_address,
+        provider,
+        barrio=pasajero.barrio_normalizado or pasajero.barrio,
+        municipio=pasajero.municipio_normalizado,
+    )
     if coords is None:
         pasajero.estado = EstadoGeocodificacion.EXCEPCION
         pasajero.error_detalle = "Dirección corregida manualmente sigue sin ser geolocalizable."

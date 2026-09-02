@@ -16,7 +16,12 @@ SUPPORTED_EXTENSIONS = {".xlsx", ".xls", ".csv"}
 COLUMN_ALIASES: dict[str, list[str]] = {
     "identificador": ["identificador", "id", "cedula", "documento", "codigo"],
     "nombre": ["nombre", "nombres", "pasajero", "nombre completo"],
-    "direccion": ["direccion", "dirección", "direccion original", "address"],
+    # 'direccion_original' permite re-ingerir un Excel ya exportado por el sistema
+    # (p. ej. para reprocesar tras corregir direcciones a mano).
+    "direccion": [
+        "direccion", "dirección", "direccion original", "direccion_original",
+        "dirección original", "address",
+    ],
     "turno": ["turno", "jornada", "horario"],
     # Opcional: distingue calles con el mismo nombre en distintos sectores/barrios
     # (frecuente en Colombia, ej. varias "Calle 26" en diferentes barrios de un mismo municipio).

@@ -18,6 +18,32 @@ class SentidoRuta(str, Enum):
     SALIDA = "salida"  # distribución
 
 
+class ConfianzaNormalizacion(str, Enum):
+    """Qué tan seguro está el módulo de IA de la dirección normalizada (Fase 2)."""
+
+    ALTA = "alta"    # dirección completa y sin ambigüedad aparente
+    MEDIA = "media"  # se pudo normalizar pero falta algún dato útil (barrio, placa)
+    BAJA = "baja"    # dirección incompleta o ambigua: alto riesgo de geocodificar mal
+
+
+@dataclass
+class DireccionNormalizada:
+    """Resultado estructurado del Módulo de IA (Fase 2), en vez de una sola línea de texto.
+
+    Devolver los componentes por separado permite (a) construir consultas de geocodificación
+    con precisión decreciente sin re-parsear el string con regex, y (b) que la IA señale
+    explícitamente cuándo una dirección es ambigua o le falta información — la causa #1 de
+    errores de geocodificación según las pruebas documentadas en el README.
+    """
+
+    direccion: str  # línea canónica ensamblada (equivalente a lo que antes se devolvía)
+    barrio: Optional[str] = None
+    municipio: Optional[str] = None
+    municipio_inferido: bool = False  # True si no venía en el texto y se asumió (Barranquilla)
+    confianza: ConfianzaNormalizacion = ConfianzaNormalizacion.ALTA
+    advertencia: Optional[str] = None  # nota legible cuando la dirección es incompleta/ambigua
+
+
 @dataclass
 class Pasajero:
     """Entidad de datos (sección 6). No interactúa con el sistema, pero estructura la información."""
@@ -29,6 +55,9 @@ class Pasajero:
     barrio: Optional[str] = None  # ayuda a distinguir calles con el mismo nombre en distintos sectores
 
     direccion_normalizada: Optional[str] = None  # RF-05
+    barrio_normalizado: Optional[str] = None  # barrio/sector que la IA identificó o conservó
+    municipio_normalizado: Optional[str] = None  # municipio que la IA identificó o asumió
+    advertencia_ia: Optional[str] = None  # aviso de la Fase 2: dirección incompleta/ambigua/municipio asumido
     latitud: Optional[float] = None
     longitud: Optional[float] = None
     estado: EstadoGeocodificacion = EstadoGeocodificacion.PENDIENTE

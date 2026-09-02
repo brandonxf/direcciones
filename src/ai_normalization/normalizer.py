@@ -6,7 +6,12 @@ import re
 from collections.abc import Callable
 
 from src.ai_normalization.client import AddressNormalizerClient
-from src.models.schemas import EstadoGeocodificacion, Pasajero
+from src.models.schemas import (
+    ConfianzaNormalizacion,
+    DireccionNormalizada,
+    EstadoGeocodificacion,
+    Pasajero,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,16 +94,36 @@ MUNICIPIOS_ATLANTICO = [
 DEFAULT_MUNICIPIO = "Barranquilla, Atlántico"
 
 
-def _asegurar_municipio(direccion: str) -> str:
+def _asegurar_municipio(direccion: str) -> tuple[str, bool]:
     """Si ninguna de las 23 municipalidades del Atlántico aparece en el texto, la agrega.
 
     No confía en que el modelo de IA lo haga siempre (se observó que a veces lo omite cuando
     el texto ya trae un barrio) — esta verificación es determinística y siempre se aplica.
+
+    Devuelve (direccion_final, municipio_fue_agregado).
     """
     texto_normalizado = direccion.lower()
     if any(municipio in texto_normalizado for municipio in MUNICIPIOS_ATLANTICO):
-        return direccion
-    return f"{direccion}, {DEFAULT_MUNICIPIO}"
+        return direccion, False
+    return f"{direccion}, {DEFAULT_MUNICIPIO}", True
+
+
+def _construir_advertencia(resultado: DireccionNormalizada, municipio_agregado: bool) -> str | None:
+    """Une la advertencia de la IA con los avisos determinísticos en una sola nota legible."""
+    avisos: list[str] = []
+    if resultado.municipio_inferido or municipio_agregado:
+        avisos.append("municipio asumido como Barranquilla (no venía en la dirección)")
+    if resultado.confianza == ConfianzaNormalizacion.BAJA:
+        avisos.append("dirección incompleta o ambigua: alto riesgo de ubicación imprecisa")
+    if resultado.advertencia:
+        avisos.append(resultado.advertencia)
+    if not avisos:
+        return None
+    # Sin duplicados, conservando el orden.
+    vistos: dict[str, None] = {}
+    for aviso in avisos:
+        vistos.setdefault(aviso.strip().rstrip("."), None)
+    return "; ".join(vistos)
 
 
 def normalize_addresses(
@@ -128,7 +153,13 @@ def normalize_addresses(
 
         try:
             resultado = client.normalize(texto_entrada)
-            pasajero.direccion_normalizada = _asegurar_municipio(resultado)
+            direccion_final, municipio_agregado = _asegurar_municipio(resultado.direccion)
+            pasajero.direccion_normalizada = direccion_final
+            pasajero.barrio_normalizado = resultado.barrio or pasajero.barrio
+            pasajero.municipio_normalizado = resultado.municipio or (
+                DEFAULT_MUNICIPIO if (resultado.municipio_inferido or municipio_agregado) else None
+            )
+            pasajero.advertencia_ia = _construir_advertencia(resultado, municipio_agregado)
             pasajero.estado = EstadoGeocodificacion.NORMALIZADA
         except Exception as exc:  # servicio de IA no disponible o error puntual
             logger.warning(
@@ -137,7 +168,13 @@ def normalize_addresses(
                 pasajero.identificador,
                 exc,
             )
-            pasajero.direccion_normalizada = _asegurar_municipio(texto_entrada)
+            direccion_final, _ = _asegurar_municipio(texto_entrada)
+            pasajero.direccion_normalizada = direccion_final
+            pasajero.barrio_normalizado = pasajero.barrio
+            pasajero.advertencia_ia = (
+                "No se pudo normalizar con IA (servicio no disponible); se usó la dirección "
+                "original preprocesada. Conviene revisarla manualmente."
+            )
 
         if progress_callback:
             progress_callback(i, total, pasajero)
